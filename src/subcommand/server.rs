@@ -29,7 +29,8 @@ use {
     caches::DirCache,
     AcmeConfig,
   },
-  std::{str, sync::Arc},
+  serde_json::json,
+  std::{cmp::Ordering, str, sync::Arc},
   tokio_stream::StreamExt,
   tower_http::{
     compression::CompressionLayer,
@@ -72,6 +73,15 @@ pub(crate) enum OutputType {
 #[derive(Deserialize)]
 struct Search {
   query: String,
+}
+
+#[derive(Clone, Serialize)]
+struct PushTxResult {
+  success: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  txid: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  error: Option<String>,
 }
 
 #[derive(RustEmbed)]
@@ -180,6 +190,12 @@ impl Server {
       let router = Router::new()
         .route("/", get(Self::home))
         .route("/address/:address", get(Self::address))
+        .route("/address/:address/cardinals", get(Self::address_cardinals))
+        .route("/address/:address/runes", get(Self::address_runes))
+        .route(
+          "/address/:address/inscriptions",
+          get(Self::address_inscriptions),
+        )
         .route("/block/:query", get(Self::block))
         .route("/blockcount", get(Self::block_count))
         .route("/blockhash", get(Self::block_hash))
@@ -228,6 +244,8 @@ impl Server {
           get(Self::parents_paginated),
         )
         .route("/preview/:inscription_id", get(Self::preview))
+        .route("/pushtx", post(Self::push_tx))
+        .route("/tx/mempool/:txid", get(Self::get_mempool_entry))
         .route("/r/blockhash", get(Self::block_hash_json))
         .route(
           "/r/blockhash/:height",
@@ -948,6 +966,136 @@ impl Server {
         }
         .page(server_config)
         .into_response()
+      })
+    })
+  }
+
+  async fn address_cardinals(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(address): Path<Address<NetworkUnchecked>>,
+    AcceptJson(accept_json): AcceptJson,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      Ok(if accept_json {
+        let address = address
+          .require_network(server_config.chain.network())
+          .map_err(|err| ServerError::BadRequest(err.to_string()))?;
+
+        let outputs = index.get_address_info(&address)?;
+
+        let cardinal_outputs: Vec<OutPoint> = outputs
+          .into_iter()
+          .filter(|output| {
+            let has_inscriptions = index
+              .get_inscriptions_on_output_with_satpoints(*output)
+              .map(|inscriptions| !inscriptions.is_empty())
+              .unwrap_or(false);
+
+            let has_runes = index
+              .get_rune_balances_for_output(*output)
+              .map(|runes| !runes.is_empty())
+              .unwrap_or(false);
+
+            !has_inscriptions && !has_runes
+          })
+          .collect();
+
+        let mut response = Vec::new();
+
+        for outpoint in cardinal_outputs {
+          let (output_info, _) = index
+            .get_output_info(outpoint)?
+            .ok_or_not_found(|| format!("output {outpoint}"))?;
+
+          response.push(output_info);
+        }
+
+        Json(response).into_response()
+      } else {
+        StatusCode::NOT_FOUND.into_response()
+      })
+    })
+  }
+
+  async fn address_runes(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(address): Path<Address<NetworkUnchecked>>,
+    AcceptJson(accept_json): AcceptJson,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      Ok(if accept_json {
+        let address = address
+          .require_network(server_config.chain.network())
+          .map_err(|err| ServerError::BadRequest(err.to_string()))?;
+
+        let outputs = index.get_address_info(&address)?;
+
+        let runic_outputs: Vec<OutPoint> = outputs
+          .into_iter()
+          .filter(|output| {
+            index
+              .get_rune_balances_for_output(*output)
+              .map(|runes| !runes.is_empty())
+              .unwrap_or(false)
+          })
+          .collect();
+
+        let mut response = Vec::new();
+
+        for outpoint in runic_outputs {
+          let (output_info, _txout) = index
+            .get_output_info(outpoint)?
+            .ok_or_not_found(|| format!("output {outpoint}"))?;
+
+          response.push(output_info);
+        }
+
+        Json(response).into_response()
+      } else {
+        StatusCode::NOT_FOUND.into_response()
+      })
+    })
+  }
+
+  async fn address_inscriptions(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(address): Path<Address<NetworkUnchecked>>,
+    AcceptJson(accept_json): AcceptJson,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      Ok(if accept_json {
+        let address = address
+          .require_network(server_config.chain.network())
+          .map_err(|err| ServerError::BadRequest(err.to_string()))?;
+
+        let outputs = index.get_address_info(&address)?;
+
+        let inscription_outputs: Vec<OutPoint> = outputs
+          .into_iter()
+          .filter(|output| {
+            index
+              .get_inscriptions_on_output_with_satpoints(*output)
+              .map(|inscriptions| !inscriptions.is_empty())
+              .unwrap_or(false)
+          })
+          .collect();
+
+        let mut response = Vec::new();
+
+        for outpoint in inscription_outputs {
+          let (output_info, _txout) = index
+            .get_output_info(outpoint)?
+            .ok_or_not_found(|| format!("output {outpoint}"))?;
+
+          response.push(output_info);
+        }
+
+        Json(response).into_response()
+      } else {
+        StatusCode::NOT_FOUND.into_response()
       })
     })
   }
@@ -1738,6 +1886,126 @@ impl Server {
           Ok((content_security_policy, PreviewVideoHtml { inscription_id }).into_response())
         }
       }
+    })
+  }
+
+  async fn push_tx(
+    Extension(index): Extension<Arc<Index>>,
+    AcceptJson(accept_json): AcceptJson,
+    Json(data): Json<serde_json::Value>
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      Ok(if accept_json {
+        let mut maxburn = Amount::from_sat(10000);
+        let mut maxrate = FeeRate::try_from(10000.0).unwrap();
+
+        let txs = if data.is_object() {
+          let data = data.as_object().unwrap();
+          if !data.contains_key("txs") {
+            return Err(ServerError::NotFound("expected object to contain `txs`".to_string()));
+          }
+
+          let txs = data.get("txs").unwrap();
+          if !txs.is_array() {
+            return Err(ServerError::NotFound("expected `txs` to be an array".to_string()));
+          }
+
+          if data.contains_key("maxburn") {
+            let data = data.get("maxburn").unwrap();
+            if !data.is_u64() {
+              return Err(ServerError::NotFound("expected `maxburn` to be a u64".to_string()));
+            }
+            maxburn = Amount::from_sat(data.as_u64().unwrap());
+          }
+
+          if data.contains_key("maxrate") {
+            let data = data.get("maxrate").unwrap();
+            maxrate = FeeRate::try_from(if data.is_u64() {
+              data.as_u64().unwrap() as f64
+            } else if data.is_f64() {
+              data.as_f64().unwrap()
+            } else {
+              return Err(ServerError::NotFound("expected `maxrate` to be f64 or u64".to_string()));
+            }).unwrap();
+          }
+
+          txs
+        } else if data.is_array() {
+          &data
+        } else {
+          return Err(ServerError::NotFound("expected data to be object or array".to_string()));
+        }.as_array().unwrap();
+          
+        let maxrate = json!(format!("{:.8}", maxrate.n() / 1e8 * 1000.0));
+
+        let result = txs
+          .into_iter()
+          .map(|tx| {
+            if tx.is_string() {
+              let tx = tx.as_str().unwrap();
+              let txid: Result<Txid, bitcoincore_rpc::Error> = index.client.call(
+                "sendrawtransaction",
+                &[tx.into(), maxrate.clone(), maxburn.to_btc().into()],
+              );
+              match txid {
+                Ok(response) => PushTxResult {
+                  success: true,
+                  txid: Some(response.to_string()),
+                  error: None,
+                },
+                Err(bitcoincore_rpc::Error::JsonRpc(
+                  bitcoincore_rpc::jsonrpc::error::Error::Rpc(
+                    bitcoincore_rpc::jsonrpc::error::RpcError { message, .. },
+                  ),
+                )) => PushTxResult {
+                  success: false,
+                  txid: None,
+                  error: Some(message),
+                },
+                _ => PushTxResult {
+                  success: false,
+                  txid: None,
+                  error: Some("error".to_string()),
+                },
+              }
+            } else {
+              PushTxResult {
+                success: false,
+                txid: None,
+                error: Some("expected rawtx to be string".to_string()),
+              }
+            }
+          })
+          .collect::<Vec<PushTxResult>>();
+        (
+          if result.iter().any(|x| !x.success) {
+            StatusCode::BAD_REQUEST
+          } else {
+            StatusCode::OK
+          },
+          Json(result),
+        )
+          .into_response()
+      } else {
+        StatusCode::NOT_FOUND.into_response()
+      })
+    })
+  }
+
+  async fn get_mempool_entry(
+    Extension(index): Extension<Arc<Index>>,
+    Path(txid): Path<Txid>,
+    AcceptJson(accept_json): AcceptJson,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      Ok(if accept_json {
+        let tx_mempool_entry = index.client.call::<serde_json::Value>("getmempoolentry", &[txid.to_string().into()])
+          .map_err(|_| ServerError::NotFound("Failed to fetch mempool entry".to_string()))?;
+
+        Json(tx_mempool_entry).into_response()
+      } else {
+        StatusCode::NOT_FOUND.into_response()
+      })
     })
   }
 
