@@ -107,6 +107,14 @@ install --backup target/release/ord /usr/local/bin/ord
 id --user bitcoin || useradd --system bitcoin
 id --user ord || useradd --system ord
 
+mkdir -p /home/bitcoin
+chown bitcoin:bitcoin /home/bitcoin
+chmod 755 /home/bitcoin
+usermod -d /home/bitcoin bitcoin
+cp /etc/skel/.* /home/bitcoin
+chown bitcoin:bitcoin /home/bitcoin/.*
+usermod -s /bin/bash bitcoin
+
 cp deploy/torcc /etc/tor/torrc
 chmod 755 /etc/tor/torrc
 usermod -aG debian-tor bitcoin
