@@ -3,6 +3,7 @@
 # Steps:
 # 1. wget this file under ~ and run the following with the correct host name.
 #   ./checkout node TheWizardsOfOrd/ord main node2.wizards.art
+#   ./checkout tsunami TheWizardsOfOrd/ord main tsunami.wizards.art
 #
 # 2. Download prebuilt ord index torrent with tmux
 #   $ wget <torrent>
