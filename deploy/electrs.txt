@@ -1,0 +1,24 @@
+- Checkout https://github.com/mempool/electrs in /home/bitcoin
+
+- Make sure bitcoin-cli is accessible as bitcoin user
+
+$ su bitcoin
+$ mkdir ~/.bitcoin
+$ cd ~/.bitcoin
+$ ln -s /etc/bitcoin/bitcoin.conf bitcoin.conf 
+
+- Install Rust for bitcoin user
+
+$ cd
+$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+- Run electrs
+
+$ git checkout https://github.com/mempool/electrs.git
+$ cd electrs
+$ cargo run --release --bin electrs -- -vvvv --daemon-dir /var/lib/bitcoind
+
+- Setup electrs as service and run behind nginx once index is built
+
+# cp /home/bitcoin/electrs/target/release/electrs /usr/local/bin/electrs
+# chown bitcoin:bitcoin /usr/local/bin/electrs
