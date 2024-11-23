@@ -14,7 +14,7 @@ $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 - Run electrs
 
-$ git checkout https://github.com/mempool/electrs.git
+$ git clone https://github.com/mempool/electrs.git
 $ cd electrs
 $ cargo run --release --bin electrs -- -vvvv --daemon-dir /var/lib/bitcoind
 
