@@ -22,3 +22,8 @@ $ cargo run --release --bin electrs -- -vvvv --daemon-dir /var/lib/bitcoind
 
 # cp /home/bitcoin/electrs/target/release/electrs /usr/local/bin/electrs
 # chown bitcoin:bitcoin /usr/local/bin/electrs
+
+# cp deploy/electrs.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable electrs
+systemctl restart electrs
