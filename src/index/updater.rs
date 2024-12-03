@@ -506,6 +506,7 @@ impl Updater<'_> {
       home_inscription_count,
       home_inscriptions: &mut home_inscriptions,
       id_to_sequence_number: inscription_id_to_sequence_number,
+      index_metaprotocol: self.index.settings.index_metaprotocol(),
       inscription_number_to_sequence_number: &mut inscription_number_to_sequence_number,
       lost_sats,
       next_sequence_number,

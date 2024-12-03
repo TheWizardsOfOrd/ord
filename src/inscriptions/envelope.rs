@@ -90,10 +90,17 @@ impl From<RawEnvelope> for ParsedEnvelope {
 }
 
 impl ParsedEnvelope {
-  pub(crate) fn from_transaction(transaction: &Transaction) -> Vec<Self> {
+  pub(crate) fn from_transaction(transaction: &Transaction, filter: Option<&str>) -> Vec<Self> {
     RawEnvelope::from_transaction(transaction)
       .into_iter()
       .map(|envelope| envelope.into())
+      .filter(|envelope: &ParsedEnvelope| match &filter {
+        Some(filter) => match &envelope.payload.metaprotocol {
+          Some(metaprotocol) => metaprotocol.to_vec() == filter.as_bytes(),
+          None => false,
+        }
+        None => true,
+      })
       .collect()
   }
 }
@@ -273,7 +280,7 @@ mod tests {
         })
         .collect(),
       output: Vec::new(),
-    })
+    }, None)
   }
 
   #[test]

@@ -20,6 +20,7 @@ pub struct Settings {
   index: Option<PathBuf>,
   index_addresses: bool,
   index_cache_size: Option<usize>,
+  index_metaprotocol: Option<String>,
   index_runes: bool,
   index_sats: bool,
   index_transactions: bool,
@@ -133,6 +134,7 @@ impl Settings {
       index: self.index.or(source.index),
       index_addresses: self.index_addresses || source.index_addresses,
       index_cache_size: self.index_cache_size.or(source.index_cache_size),
+      index_metaprotocol: self.index_metaprotocol.or(source.index_metaprotocol),
       index_runes: self.index_runes || source.index_runes,
       index_sats: self.index_sats || source.index_sats,
       index_transactions: self.index_transactions || source.index_transactions,
@@ -168,6 +170,7 @@ impl Settings {
       index: options.index,
       index_addresses: options.index_addresses,
       index_cache_size: options.index_cache_size,
+      index_metaprotocol: options.index_metaprotocol,
       index_runes: options.index_runes,
       index_sats: options.index_sats,
       index_transactions: options.index_transactions,
@@ -256,6 +259,7 @@ impl Settings {
       index: get_path("INDEX"),
       index_addresses: get_bool("INDEX_ADDRESSES"),
       index_cache_size: get_usize("INDEX_CACHE_SIZE")?,
+      index_metaprotocol: get_string("INDEX_METAPROTOCOL"),
       index_runes: get_bool("INDEX_RUNES"),
       index_sats: get_bool("INDEX_SATS"),
       index_transactions: get_bool("INDEX_TRANSACTIONS"),
@@ -286,6 +290,7 @@ impl Settings {
       index: None,
       index_addresses: true,
       index_cache_size: None,
+      index_metaprotocol: None,
       index_runes: true,
       index_sats: true,
       index_transactions: false,
@@ -360,6 +365,7 @@ impl Settings {
           usize::try_from(sys.total_memory() / 4)?
         }
       }),
+      index_metaprotocol: self.index_metaprotocol,
       index_runes: self.index_runes,
       index_sats: self.index_sats,
       index_transactions: self.index_transactions,
@@ -531,6 +537,10 @@ impl Settings {
 
   pub fn index_inscriptions_raw(&self) -> bool {
     !self.no_index_inscriptions
+  }
+
+  pub fn index_metaprotocol(&self) -> Option<&str> {
+    self.index_metaprotocol.as_deref()
   }
 
   pub fn index_runes_raw(&self) -> bool {
