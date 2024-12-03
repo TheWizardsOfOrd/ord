@@ -1890,13 +1890,13 @@ impl Server {
     task::block_in_place(|| {
       if !accept_json {
         return Err(ServerError::NotFound(
-          "This server only supports JSON responses".to_string(),
+          "Missing JSON accept header".to_string(),
         ));
       }
 
       if !index.has_address_index() {
         return Err(ServerError::NotFound(
-          "this server has no address index".to_string(),
+          "Missing address index".to_string(),
         ));
       }
 
@@ -1925,7 +1925,7 @@ impl Server {
 
           let metaprotocol = &info.metaprotocol;
 
-          if metaprotocol.as_deref() == Some(METAPROTOCOL_ASSIGN) {
+          if metaprotocol.as_deref() == Some(METAPROTOCOL_ASSIGN) && info.satpoint.outpoint.txid == info.id.txid {
             let delegate_query = query::Inscription::Id(InscriptionId {
               txid: inscription.txid,
               index: 1,
