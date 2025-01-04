@@ -82,7 +82,7 @@ struct Search {
 #[folder = "static"]
 struct StaticAssets;
 
-const METAPROTOCOL_ASSIGN: &str = "assign";
+const METAPROTOCOL_ASSIGN: &str = "ASSIGN";
 
 #[derive(Serialize)]
 struct AssignDelegate {
