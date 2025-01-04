@@ -86,7 +86,14 @@ const METAPROTOCOL_ASSIGN: &str = "ASSIGN";
 
 #[derive(Serialize)]
 struct AssignDelegate {
-  delegate: String,
+  address: String,
+  anchor: AssignInscriptionInfo,
+  delegate: AssignInscriptionInfo,
+}
+
+#[derive(Serialize)]
+struct AssignInscriptionInfo {
+  id: InscriptionId,
   metadata: Option<Value>,
 }
 
@@ -1842,7 +1849,7 @@ impl Server {
           }
 
           let query = query::Inscription::Id(inscription);
-          let (info, _, _) = index
+          let (info, _, anchor_inscripton) = index
             .inscription_info(query, None)?
             .ok_or_not_found(|| format!("inscription {query}"))?;
 
@@ -1885,8 +1892,15 @@ impl Server {
 
               if all_outputs_match {
                 let delegate_entry = AssignDelegate {
-                  delegate: delegate_info.address.clone().unwrap_or_default(),
-                  metadata: delegate_inscripton.metadata(),
+                  address: delegate_info.address.clone().unwrap_or_default(),
+                  anchor: AssignInscriptionInfo {
+                    id: inscription,
+                    metadata: anchor_inscripton.metadata(),
+                  },
+                  delegate: AssignInscriptionInfo {
+                    id: delegate_info.id,
+                    metadata: delegate_inscripton.metadata(),
+                  },
                 };
 
                 delegates.push(delegate_entry);
