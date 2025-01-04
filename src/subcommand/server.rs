@@ -198,9 +198,115 @@ impl Server {
 
       let router = Router::new()
         .route("/", get(Self::home))
+        .route("/address/:address", get(Self::address))
+        .route("/block/:query", get(Self::block))
+        .route("/blockcount", get(Self::block_count))
+        .route("/blockhash", get(Self::block_hash))
+        .route("/blockhash/:height", get(Self::block_hash_from_height))
+        .route("/blockheight", get(Self::block_height))
+        .route("/blocks", get(Self::blocks))
+        .route("/blocktime", get(Self::block_time))
+        .route("/bounties", get(Self::bounties))
+        .route("/children/:inscription_id", get(Self::children))
+        .route(
+          "/children/:inscription_id/:page",
+          get(Self::children_paginated),
+        )
+        .route("/clock", get(Self::clock))
+        .route("/collections", get(Self::collections))
+        .route("/collections/:page", get(Self::collections_paginated))
+        .route("/content/:inscription_id", get(Self::content))
         .route("/delegates", post(Self::delegates))
+        .route("/faq", get(Self::faq))
+        .route("/favicon.ico", get(Self::favicon))
+        .route("/feed.xml", get(Self::feed))
+        .route("/input/:block/:transaction/:input", get(Self::input))
+        .route("/inscription/:inscription_query", get(Self::inscription))
+        .route(
+          "/inscription/:inscription_query/:child",
+          get(Self::inscription_child),
+        )
+        .route("/inscriptions", get(Self::inscriptions))
+        .route("/inscriptions", post(Self::inscriptions_json))
+        .route("/inscriptions/:page", get(Self::inscriptions_paginated))
+        .route(
+          "/inscriptions/block/:height",
+          get(Self::inscriptions_in_block),
+        )
+        .route(
+          "/inscriptions/block/:height/:page",
+          get(Self::inscriptions_in_block_paginated),
+        )
+        .route("/install.sh", get(Self::install_script))
+        .route("/ordinal/:sat", get(Self::ordinal))
+        .route("/output/:output", get(Self::output))
+        .route("/outputs", post(Self::outputs))
+        .route("/outputs/:address", get(Self::outputs_address))
+        .route("/parents/:inscription_id", get(Self::parents))
+        .route(
+          "/parents/:inscription_id/:page",
+          get(Self::parents_paginated),
+        )
+        .route("/preview/:inscription_id", get(Self::preview))
+        .route("/pushtx", post(Self::push_tx))
+        .route("/tx/mempool/:txid", get(Self::get_mempool_entry))
+        .route("/r/blockhash", get(Self::block_hash_json))
+        .route(
+          "/r/blockhash/:height",
+          get(Self::block_hash_from_height_json),
+        )
+        .route("/r/blockheight", get(Self::block_height))
+        .route("/r/blocktime", get(Self::block_time))
+        .route("/r/blockinfo/:query", get(Self::block_info))
+        .route(
+          "/r/inscription/:inscription_id",
+          get(Self::inscription_recursive),
+        )
+        .route("/r/children/:inscription_id", get(Self::children_recursive))
+        .route(
+          "/r/children/:inscription_id/:page",
+          get(Self::children_recursive_paginated),
+        )
+        .route(
+          "/r/children/:inscription_id/inscriptions",
+          get(Self::child_inscriptions_recursive),
+        )
+        .route(
+          "/r/children/:inscription_id/inscriptions/:page",
+          get(Self::child_inscriptions_recursive_paginated),
+        )
+        .route(
+          "/r/undelegated-content/:inscription_id",
+          get(Self::undelegated_content),
+        )
+        .route("/r/metadata/:inscription_id", get(Self::metadata))
+        .route("/r/parents/:inscription_id", get(Self::parents_recursive))
+        .route(
+          "/r/parents/:inscription_id/:page",
+          get(Self::parents_recursive_paginated),
+        )
+        .route("/r/sat/:sat_number", get(Self::sat_inscriptions))
+        .route(
+          "/r/sat/:sat_number/:page",
+          get(Self::sat_inscriptions_paginated),
+        )
+        .route(
+          "/r/sat/:sat_number/at/:index",
+          get(Self::sat_inscription_at_index),
+        )
+        .route("/rare.txt", get(Self::rare_txt))
+        .route("/rune/:rune", get(Self::rune))
+        .route("/runes", get(Self::runes))
+        .route("/runes/:page", get(Self::runes_paginated))
+        .route("/sat/:sat", get(Self::sat))
+        .route("/satpoint/:satpoint", get(Self::satpoint))
+        .route("/search", get(Self::search_by_query))
+        .route("/search/*query", get(Self::search_by_path))
         .route("/static/*path", get(Self::static_asset))
         .route("/status", get(Self::status))
+        .route("/tx/:txid", get(Self::transaction))
+        .route("/decode/:txid", get(Self::decode))
+        .route("/update", get(Self::update))
         .fallback(Self::fallback)
         .layer(Extension(index))
         .layer(Extension(server_config.clone()))
