@@ -17,7 +17,7 @@ ExecStart=/usr/local/bin/assign_ord \
   --index-runes \
   --index-sats \
   server \
-  --http-port 8082 \
+  --http-port 8082
 Group=ord
 LimitNOFILE=65536
 MemoryDenyWriteExecute=true
