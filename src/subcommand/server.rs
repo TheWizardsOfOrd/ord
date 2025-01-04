@@ -248,8 +248,6 @@ impl Server {
           get(Self::parents_paginated),
         )
         .route("/preview/:inscription_id", get(Self::preview))
-        .route("/pushtx", post(Self::push_tx))
-        .route("/tx/mempool/:txid", get(Self::get_mempool_entry))
         .route("/r/blockhash", get(Self::block_hash_json))
         .route(
           "/r/blockhash/:height",
