@@ -197,8 +197,9 @@ impl Server {
       });
 
       let router = Router::new()
-        .route("/delegates", post(Self::delegates))
         .route("/", get(Self::home))
+        .route("/delegates", post(Self::delegates))
+        .route("/static/*path", get(Self::static_asset))
         .route("/status", get(Self::status))
         .fallback(Self::fallback)
         .layer(Extension(index))
