@@ -29,7 +29,11 @@ use {
     caches::DirCache,
     AcmeConfig,
   },
-  std::{str, sync::Arc},
+  std::{
+    str,
+    collections::HashMap,
+    sync::Arc
+  },
   tokio_stream::StreamExt,
   tower_http::{
     compression::CompressionLayer,
@@ -77,6 +81,21 @@ struct Search {
 #[derive(RustEmbed)]
 #[folder = "static"]
 struct StaticAssets;
+
+const METAPROTOCOL_ASSIGN: &str = "ASSIGN";
+
+#[derive(Serialize)]
+struct AssignDelegate {
+  address: String,
+  anchor: AssignInscriptionInfo,
+  delegate: AssignInscriptionInfo,
+}
+
+#[derive(Serialize)]
+struct AssignInscriptionInfo {
+  id: InscriptionId,
+  metadata: Option<Value>,
+}
 
 #[derive(Debug, Parser, Clone)]
 pub struct Server {
@@ -197,6 +216,7 @@ impl Server {
         .route("/collections", get(Self::collections))
         .route("/collections/:page", get(Self::collections_paginated))
         .route("/content/:inscription_id", get(Self::content))
+        .route("/delegates", post(Self::delegates))
         .route("/faq", get(Self::faq))
         .route("/favicon.ico", get(Self::favicon))
         .route("/feed.xml", get(Self::feed))
@@ -272,7 +292,6 @@ impl Server {
           "/r/sat/:sat_number/at/:index",
           get(Self::sat_inscription_at_index),
         )
-        .route("/r/utxo/:outpoint", get(Self::utxo_recursive))
         .route("/rare.txt", get(Self::rare_txt))
         .route("/rune/:rune", get(Self::rune))
         .route("/runes", get(Self::runes))
@@ -1115,7 +1134,7 @@ impl Server {
         .get_transaction(txid)?
         .ok_or_not_found(|| format!("transaction {txid}"))?;
 
-      let inscriptions = ParsedEnvelope::from_transaction(&transaction);
+      let inscriptions = ParsedEnvelope::from_transaction(&transaction, None);
       let runestone = Runestone::decipher(&transaction);
 
       Ok(if accept_json {
@@ -1890,6 +1909,117 @@ impl Server {
       } else {
         StatusCode::NOT_FOUND.into_response()
       })
+    })
+  }
+
+  async fn delegates(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    AcceptJson(accept_json): AcceptJson,
+    Json(addresses): Json<Vec<Address<NetworkUnchecked>>>,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      if !accept_json {
+        return Err(ServerError::NotFound(
+          "Missing JSON accept header".to_string(),
+        ));
+      }
+
+      if !index.has_address_index() {
+        return Err(ServerError::NotFound(
+          "Missing address index".to_string(),
+        ));
+      }
+
+      let mut response = Vec::new();
+
+      for address in addresses {
+        let address = address
+          .require_network(server_config.chain.network())
+          .map_err(|err| ServerError::BadRequest(err.to_string()))?;
+
+        let outputs = index.get_address_info(&address)?;
+
+        let inscriptions = match index.get_inscriptions_for_outputs(&outputs)? {
+          Some(inscriptions) => inscriptions,
+          None => continue,
+        };
+
+        let mut delegate_map = HashMap::new();
+        let mut delegates = Vec::new();
+
+        for inscription in inscriptions {
+          if inscription.index != 0 {
+            continue;
+          }
+
+          let query = query::Inscription::Id(inscription);
+          let (info, _, anchor_inscripton) = index
+            .inscription_info(query, None)?
+            .ok_or_not_found(|| format!("inscription {query}"))?;
+
+          let metaprotocol = &info.metaprotocol;
+
+          if metaprotocol.as_deref() == Some(METAPROTOCOL_ASSIGN) && info.satpoint.outpoint.txid == info.id.txid {
+            let delegate_query = query::Inscription::Id(InscriptionId {
+              txid: inscription.txid,
+              index: 1,
+            });
+
+            let delegate_data = index.inscription_info(delegate_query, None)?
+              .and_then(|(delegate_info, _, delegate_inscripton)| {
+                if delegate_info.metaprotocol.as_deref() == Some(METAPROTOCOL_ASSIGN) && delegate_info.address.as_ref() != Some(&address.to_string()) {
+                  Some((delegate_info, delegate_inscripton))
+                } else {
+                  None
+                }
+              }
+            );
+
+            if let Some((delegate_info, delegate_inscripton)) = delegate_data {
+              let tx_json = index
+                .client
+                .call::<serde_json::Value>("getrawtransaction", &[inscription.txid.to_string().into(), true.into()])
+                .map_err(|_| ServerError::NotFound("Failed to fetch raw transaction".to_string()))?;
+
+              let outputs = tx_json["vout"]
+                .as_array()
+                .ok_or_else(|| ServerError::BadRequest("Invalid transaction JSON".to_string()))?;
+
+              let all_outputs_match = outputs.iter().all(|output| {
+                !output["scriptPubKey"]["asm"]
+                  .as_str()
+                  .map_or(false, |asm| asm.starts_with("OP_RETURN"))
+                  && output["scriptPubKey"]["address"]
+                  .as_str()
+                  .map_or(false, |addr| addr == address.to_string())
+              });
+
+              if all_outputs_match {
+                let delegate_entry = AssignDelegate {
+                  address: delegate_info.address.clone().unwrap_or_default(),
+                  anchor: AssignInscriptionInfo {
+                    id: inscription,
+                    metadata: anchor_inscripton.metadata(),
+                  },
+                  delegate: AssignInscriptionInfo {
+                    id: delegate_info.id,
+                    metadata: delegate_inscripton.metadata(),
+                  },
+                };
+
+                delegates.push(delegate_entry);
+              }
+            }
+          }
+        }
+        
+        delegate_map.insert(address.to_string(), delegates);
+
+        response.push(delegate_map);
+      }
+
+      Ok(Json(response).into_response())
     })
   }
 

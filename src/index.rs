@@ -1497,7 +1497,7 @@ impl Index {
     }
 
     Ok(self.get_transaction(inscription_id.txid)?.and_then(|tx| {
-      ParsedEnvelope::from_transaction(&tx)
+      ParsedEnvelope::from_transaction(&tx, None)
         .into_iter()
         .nth(inscription_id.index as usize)
         .map(|envelope| envelope.payload)
@@ -2006,7 +2006,7 @@ impl Index {
       return Ok(None);
     };
 
-    let Some(inscription) = ParsedEnvelope::from_transaction(&transaction)
+    let Some(inscription) = ParsedEnvelope::from_transaction(&transaction, None)
       .into_iter()
       .nth(entry.id.index as usize)
       .map(|envelope| envelope.payload)
