@@ -227,6 +227,10 @@ impl Server {
           "/inscriptions/block/{height}/{page}",
           get(Self::inscriptions_in_block_paginated),
         )
+        .route(
+          "/inscriptions/guesses/{start_block}/{end_block}",
+          get(Self::inscription_guesses_between_blocks),
+        )
         .route("/inscriptions/{page}", get(Self::inscriptions_paginated))
         .route("/install.sh", get(Self::install_script))
         .route("/ordinal/{sat}", get(Self::ordinal))
@@ -2419,6 +2423,54 @@ impl Server {
         .page(server_config)
         .into_response()
       })
+    })
+  }
+
+  async fn inscription_guesses_between_blocks(
+    Extension(index): Extension<Arc<Index>>,
+    Path((start_block, end_block)): Path<(u32, u32)>,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      if end_block <= start_block || end_block - start_block > 10 {
+        return Err(ServerError::NotFound(
+          "Invalid block range: end_block must be greater than start_block and within a range of 10".to_string(),
+        ));
+      }
+
+      let mut response = Vec::new();
+
+      for block_height in start_block..=end_block {
+        let inscriptions = index.get_inscriptions_in_block(block_height)?;
+
+        for inscription in inscriptions {
+          let inscription_str = inscription.to_string();
+
+          // if !inscription_str[0..4].chars().all(|c| c.is_digit(10)) {
+          //   continue;
+          // }
+
+          if !inscription_str[0..11].chars().all(|c| c.is_digit(10)) {
+            continue;
+          }
+
+          if !inscription_str.ends_with("i0") {
+            continue;
+          }
+
+          let query = query::Inscription::Id(inscription);
+          let (info, _, _) = index
+            .inscription_info(query, None)?
+            .ok_or_not_found(|| format!("inscription {query}"))?;
+
+          // if info.metaprotocol.as_deref() != Some("mempool69") {
+          //   continue;
+          // }
+
+          response.push(info);
+        }
+      }
+
+      Ok(Json(response).into_response())
     })
   }
 
