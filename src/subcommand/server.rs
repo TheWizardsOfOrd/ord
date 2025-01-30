@@ -2445,13 +2445,13 @@ impl Server {
         for inscription in inscriptions {
           let inscription_str = inscription.to_string();
 
-          // if !inscription_str[0..4].chars().all(|c| c.is_digit(10)) {
-          //   continue;
-          // }
-
-          if !inscription_str[0..11].chars().all(|c| c.is_digit(10)) {
+          if !inscription_str[0..4].chars().all(|c| c.is_digit(10)) {
             continue;
           }
+
+          // if !inscription_str[0..11].chars().all(|c| c.is_digit(10)) {
+          //   continue;
+          // }
 
           if !inscription_str.ends_with("i0") {
             continue;
@@ -2462,9 +2462,9 @@ impl Server {
             .inscription_info(query, None)?
             .ok_or_not_found(|| format!("inscription {query}"))?;
 
-          // if info.metaprotocol.as_deref() != Some("mempool69") {
-          //   continue;
-          // }
+          if info.metaprotocol.as_deref() != Some("mempool69") {
+            continue;
+          }
 
           response.push(info);
         }
