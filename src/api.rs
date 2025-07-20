@@ -111,6 +111,7 @@ pub struct Inscription {
   pub timestamp: i64,
   pub value: Option<u64>,
   pub metaprotocol: Option<String>,
+  pub delegate: Option<InscriptionId>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
