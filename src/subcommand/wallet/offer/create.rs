@@ -70,9 +70,9 @@ impl Create {
 
     wallet.lock_non_cardinal_outputs()?;
 
-    let tx = fund_raw_transaction(wallet.bitcoin_client(), self.fee_rate, &tx, None)?;
+    let tx = fund_raw_transaction(wallet.bitcoin_client(), self.fee_rate, &tx)?;
 
-    let tx = consensus::encode::deserialize::<Transaction>(&tx)?;
+    let tx = Transaction::consensus_decode(&mut tx.as_slice())?;
 
     let psbt = Psbt::from_unsigned_tx(tx)?;
 

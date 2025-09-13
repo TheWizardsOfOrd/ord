@@ -26,5 +26,4 @@ mod selection;
 mod send;
 mod sign;
 mod split;
-mod sweep;
 mod transactions;

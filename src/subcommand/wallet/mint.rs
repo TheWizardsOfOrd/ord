@@ -91,7 +91,7 @@ impl Mint {
     wallet.lock_non_cardinal_outputs()?;
 
     let unsigned_transaction =
-      fund_raw_transaction(bitcoin_client, self.fee_rate, &unfunded_transaction, None)?;
+      fund_raw_transaction(bitcoin_client, self.fee_rate, &unfunded_transaction)?;
 
     let signed_transaction = bitcoin_client
       .sign_raw_transaction_with_wallet(&unsigned_transaction, None, None)?

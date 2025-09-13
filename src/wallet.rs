@@ -340,16 +340,6 @@ impl Wallet {
     )
   }
 
-  pub(crate) fn get_receive_address(&self) -> Result<Address> {
-    Ok(
-      self
-        .bitcoin_client
-        .get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))
-        .context("could not get receive addresses from wallet")?
-        .require_network(self.chain().network())?,
-    )
-  }
-
   pub(crate) fn has_sat_index(&self) -> bool {
     self.has_sat_index
   }
@@ -891,7 +881,6 @@ impl Wallet {
       self.bitcoin_client(),
       fee_rate,
       &unfunded_transaction,
-      None,
     )?)?;
 
     Ok(unsigned_transaction)
@@ -1123,7 +1112,7 @@ impl Wallet {
     };
 
     let unsigned_transaction =
-      fund_raw_transaction(self.bitcoin_client(), fee_rate, &unfunded_transaction, None)?;
+      fund_raw_transaction(self.bitcoin_client(), fee_rate, &unfunded_transaction)?;
 
     let unsigned_transaction = consensus::encode::deserialize(&unsigned_transaction)?;
 
@@ -1159,13 +1148,5 @@ impl Wallet {
         )?
         .balance_change,
     )
-  }
-
-  pub(crate) fn ord_client(&self) -> reqwest::blocking::Client {
-    self.ord_client.clone()
-  }
-
-  pub(crate) fn rpc_url(&self) -> &Url {
-    &self.rpc_url
   }
 }
