@@ -30,7 +30,7 @@ use {
     AcmeConfig,
   },
   serde_json::json,
-  std::{cmp::Ordering, str, sync::Arc},
+  std::{str, sync::Arc},
   tokio_stream::StreamExt,
   tower_http::{
     compression::CompressionLayer,
