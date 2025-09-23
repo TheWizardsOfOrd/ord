@@ -207,6 +207,7 @@ impl Server {
       let router = Router::new()
         .route("/", get(Self::home))
         .route("/address/{address}", get(Self::address))
+        .route("/address/{address}/children/{inscription_id}", get(Self::address_children))
         .route("/block/{query}", get(Self::block))
         .route("/blockcount", get(Self::block_count))
         .route("/blocks", get(Self::blocks))
@@ -1183,6 +1184,56 @@ impl Server {
         .page(server_config)
         .into_response()
       })
+    })
+  }
+
+  async fn address_children(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path((address, inscription_id)): Path<(Address<NetworkUnchecked>, InscriptionId)>,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      let address = address
+        .require_network(server_config.chain.network())
+        .map_err(|err| ServerError::BadRequest(err.to_string()))?;
+
+      if !index.has_address_index() {
+        return Err(ServerError::NotFound(
+          "this server has no address index".to_string(),
+        ));
+      }
+
+      let parent_entry = index
+        .get_inscription_entry(inscription_id)?
+        .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+      let outputs = index.get_address_info(&address)?;
+      let address_inscriptions = index.get_inscriptions_for_outputs(&outputs)?;
+
+      let Some(inscription_ids) = address_inscriptions else {
+        return Ok(Json(Vec::<api::Inscription>::new()).into_response());
+      };
+
+      let mut children = Vec::new();
+      for child_id in inscription_ids {
+        if let Some(child_entry) = index.get_inscription_entry(child_id)? {
+          if child_entry.parents.contains(&parent_entry.sequence_number) {
+            if children.len() >= 100 {
+              return Err(ServerError::BadRequest(
+                "Maximum 100 children supported".to_string(),
+              ));
+            }
+            
+            let (inscription, _output, _inscription_entry) = index
+              .inscription_info(query::Inscription::Id(child_id), None)?
+              .ok_or_not_found(|| format!("inscription {child_id}"))?;
+            
+            children.push(inscription);
+          }
+        }
+      }
+
+      Ok(Json(children).into_response())
     })
   }
 
