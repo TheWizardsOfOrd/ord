@@ -29,7 +29,6 @@ use {
     into_usize::IntoUsize,
     option_ext::OptionExt,
     outgoing::Outgoing,
-    properties::Properties,
     representation::Representation,
     satscard::Satscard,
     settings::Settings,
@@ -61,7 +60,6 @@ use {
   clap::{ArgGroup, Parser},
   error::{ResultExt, SnafuError},
   html_escaper::{Escape, Trusted},
-  lazy_static::lazy_static,
   ordinals::{
     Artifact, Charm, Edict, Epoch, Etching, Height, Pile, Rarity, Rune, RuneId, Runestone, Sat,
     SatPoint, SpacedRune, Terms, varint,
@@ -103,6 +101,7 @@ pub use self::{
   inscriptions::{Envelope, Inscription, InscriptionId, ParsedEnvelope, RawEnvelope},
   object::Object,
   options::Options,
+  properties::{Attributes, Item, Properties, Trait, Traits},
   wallet::transaction_builder::{Target, TransactionBuilder},
 };
 

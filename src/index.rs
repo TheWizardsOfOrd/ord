@@ -29,8 +29,8 @@ use {
   log::log_enabled,
   redb::{
     Database, DatabaseError, MultimapTable, MultimapTableDefinition, MultimapTableHandle,
-    ReadOnlyTable, ReadableMultimapTable, ReadableTable, ReadableTableMetadata, RepairSession,
-    StorageError, Table, TableDefinition, TableHandle, TableStats, WriteTransaction,
+    ReadOnlyTable, ReadableDatabase, ReadableMultimapTable, ReadableTable, ReadableTableMetadata,
+    RepairSession, StorageError, Table, TableDefinition, TableHandle, TableStats, WriteTransaction,
   },
   std::{
     collections::HashMap,
@@ -53,7 +53,7 @@ mod utxo_entry;
 #[cfg(test)]
 pub(crate) mod testing;
 
-const SCHEMA_VERSION: u64 = 30;
+const SCHEMA_VERSION: u64 = 31;
 
 define_multimap_table! { SAT_TO_SEQUENCE_NUMBER, u64, u32 }
 define_multimap_table! { SCRIPT_PUBKEY_TO_OUTPOINT, &[u8], OutPointValue }
@@ -304,13 +304,15 @@ impl Index {
       Err(DatabaseError::Storage(StorageError::Io(error)))
         if error.kind() == io::ErrorKind::NotFound =>
       {
+        log::info!("Creating new index");
+
         let database = Database::builder()
           .set_cache_size(index_cache_size)
           .create(&path)?;
 
         let mut tx = database.begin_write()?;
 
-        tx.set_durability(durability);
+        tx.set_durability(durability)?;
         tx.set_quick_repair(true);
 
         tx.open_multimap_table(SAT_TO_SEQUENCE_NUMBER)?;
@@ -787,7 +789,7 @@ impl Index {
 
   fn begin_write(&self) -> Result<WriteTransaction> {
     let mut tx = self.database.begin_write()?;
-    tx.set_durability(self.durability);
+    tx.set_durability(self.durability)?;
     tx.set_quick_repair(true);
     Ok(tx)
   }
@@ -2287,6 +2289,7 @@ impl Index {
         number: entry.inscription_number,
         parents,
         previous,
+        properties: inscription.properties(),
         rune,
         sat: entry.sat,
         satpoint,
