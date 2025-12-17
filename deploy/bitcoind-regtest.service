@@ -1,0 +1,12 @@
+[Unit]
+Description=Bitcoin daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/ord env --proxy https://ordinals.com /home/bitcoin/regtest
+User=bitcoin
+Group=bitcoin
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

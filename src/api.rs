@@ -119,6 +119,7 @@ pub struct Inscription {
   pub satpoint: SatPoint,
   pub timestamp: i64,
   pub value: Option<u64>,
+  pub delegate: Option<InscriptionId>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

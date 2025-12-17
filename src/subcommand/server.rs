@@ -29,6 +29,8 @@ use {
     axum::AxumAcceptor,
     caches::DirCache,
   },
+  serde_json::json,
+  std::{str, sync::Arc},
   tokio_stream::StreamExt,
   tower_http::{
     compression::CompressionLayer,
@@ -74,6 +76,15 @@ pub(crate) enum OutputType {
 #[derive(Deserialize)]
 struct Search {
   query: String,
+}
+
+#[derive(Clone, Serialize)]
+struct PushTxResult {
+  success: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  txid: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  error: Option<String>,
 }
 
 #[derive(RustEmbed)]
@@ -197,6 +208,7 @@ impl Server {
       let router = Router::new()
         .route("/", get(Self::home))
         .route("/address/{address}", get(Self::address))
+        .route("/address/{address}/children/{inscription_id}", get(Self::address_children))
         .route("/block/{query}", get(Self::block))
         .route("/blockcount", get(Self::block_count))
         .route("/blocks", get(Self::blocks))
@@ -233,6 +245,10 @@ impl Server {
           "/inscriptions/block/{height}/{page}",
           get(Self::inscriptions_in_block_paginated),
         )
+        .route(
+          "/inscriptions/guesses/{start_block}/{end_block}",
+          get(Self::inscription_guesses_between_blocks),
+        )
         .route("/inscriptions/{page}", get(Self::inscriptions_paginated))
         .route("/install.sh", get(Self::install_script))
         .route("/offer", post(Self::offer))
@@ -247,6 +263,8 @@ impl Server {
           get(Self::parents_paginated),
         )
         .route("/preview/{inscription_id}", get(Self::preview))
+        .route("/pushtx", post(Self::push_tx))
+        .route("/tx/mempool/{txid}", get(Self::get_mempool_entry))
         .route("/rare.txt", get(Self::rare_txt))
         .route("/rune/{rune}", get(Self::rune))
         .route("/runes", get(Self::runes))
@@ -1171,6 +1189,56 @@ impl Server {
     })
   }
 
+  async fn address_children(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path((address, inscription_id)): Path<(Address<NetworkUnchecked>, InscriptionId)>,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      let address = address
+        .require_network(server_config.chain.network())
+        .map_err(|err| ServerError::BadRequest(err.to_string()))?;
+
+      if !index.has_address_index() {
+        return Err(ServerError::NotFound(
+          "this server has no address index".to_string(),
+        ));
+      }
+
+      let parent_entry = index
+        .get_inscription_entry(inscription_id)?
+        .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+      let outputs = index.get_address_info(&address)?;
+      let address_inscriptions = index.get_inscriptions_for_outputs(&outputs)?;
+
+      let Some(inscription_ids) = address_inscriptions else {
+        return Ok(Json(Vec::<api::Inscription>::new()).into_response());
+      };
+
+      let mut children = Vec::new();
+      for child_id in inscription_ids {
+        if let Some(child_entry) = index.get_inscription_entry(child_id)? {
+          if child_entry.parents.contains(&parent_entry.sequence_number) {
+            if children.len() >= 100 {
+              return Err(ServerError::BadRequest(
+                "Maximum 100 children supported".to_string(),
+              ));
+            }
+            
+            let (inscription, _output, _inscription_entry) = index
+              .inscription_info(query::Inscription::Id(child_id), None)?
+              .ok_or_not_found(|| format!("inscription {child_id}"))?;
+            
+            children.push(inscription);
+          }
+        }
+      }
+
+      Ok(Json(children).into_response())
+    })
+  }
+
   fn address_info(index: &Index, address: &Address) -> ServerResult<Option<api::AddressInfo>> {
     if !index.has_address_index() {
       return Ok(None);
@@ -1645,6 +1713,141 @@ impl Server {
     })
   }
 
+  async fn push_tx(
+    Extension(index): Extension<Arc<Index>>,
+    AcceptJson(accept_json): AcceptJson,
+    Json(data): Json<serde_json::Value>,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      Ok(if accept_json {
+        let mut maxburn = Amount::from_sat(10000);
+        let mut maxrate = FeeRate::try_from(10000.0).unwrap();
+
+        let txs = if data.is_object() {
+          let data = data.as_object().unwrap();
+          if !data.contains_key("txs") {
+            return Err(ServerError::NotFound(
+              "expected object to contain `txs`".to_string(),
+            ));
+          }
+
+          let txs = data.get("txs").unwrap();
+          if !txs.is_array() {
+            return Err(ServerError::NotFound(
+              "expected `txs` to be an array".to_string(),
+            ));
+          }
+
+          if data.contains_key("maxburn") {
+            let data = data.get("maxburn").unwrap();
+            if !data.is_u64() {
+              return Err(ServerError::NotFound(
+                "expected `maxburn` to be a u64".to_string(),
+              ));
+            }
+            maxburn = Amount::from_sat(data.as_u64().unwrap());
+          }
+
+          if data.contains_key("maxrate") {
+            let data = data.get("maxrate").unwrap();
+            maxrate = FeeRate::try_from(if data.is_u64() {
+              data.as_u64().unwrap() as f64
+            } else if data.is_f64() {
+              data.as_f64().unwrap()
+            } else {
+              return Err(ServerError::NotFound(
+                "expected `maxrate` to be f64 or u64".to_string(),
+              ));
+            })
+            .unwrap();
+          }
+
+          txs
+        } else if data.is_array() {
+          &data
+        } else {
+          return Err(ServerError::NotFound(
+            "expected data to be object or array".to_string(),
+          ));
+        }
+        .as_array()
+        .unwrap();
+
+        let maxrate = json!(format!("{:.8}", maxrate.n() / 1e8 * 1000.0));
+
+        let result = txs
+          .into_iter()
+          .map(|tx| {
+            if tx.is_string() {
+              let tx = tx.as_str().unwrap();
+              let txid: Result<Txid, bitcoincore_rpc::Error> = index.client.call(
+                "sendrawtransaction",
+                &[tx.into(), maxrate.clone(), maxburn.to_btc().into()],
+              );
+              match txid {
+                Ok(response) => PushTxResult {
+                  success: true,
+                  txid: Some(response.to_string()),
+                  error: None,
+                },
+                Err(bitcoincore_rpc::Error::JsonRpc(
+                  bitcoincore_rpc::jsonrpc::error::Error::Rpc(
+                    bitcoincore_rpc::jsonrpc::error::RpcError { message, .. },
+                  ),
+                )) => PushTxResult {
+                  success: false,
+                  txid: None,
+                  error: Some(message),
+                },
+                _ => PushTxResult {
+                  success: false,
+                  txid: None,
+                  error: Some("error".to_string()),
+                },
+              }
+            } else {
+              PushTxResult {
+                success: false,
+                txid: None,
+                error: Some("expected rawtx to be string".to_string()),
+              }
+            }
+          })
+          .collect::<Vec<PushTxResult>>();
+        (
+          if result.iter().any(|x| !x.success) {
+            StatusCode::BAD_REQUEST
+          } else {
+            StatusCode::OK
+          },
+          Json(result),
+        )
+          .into_response()
+      } else {
+        StatusCode::NOT_FOUND.into_response()
+      })
+    })
+  }
+
+  async fn get_mempool_entry(
+    Extension(index): Extension<Arc<Index>>,
+    Path(txid): Path<Txid>,
+    AcceptJson(accept_json): AcceptJson,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      Ok(if accept_json {
+        let tx_mempool_entry = index
+          .client
+          .call::<serde_json::Value>("getmempoolentry", &[txid.to_string().into()])
+          .map_err(|_| ServerError::NotFound("Failed to fetch mempool entry".to_string()))?;
+
+        Json(tx_mempool_entry).into_response()
+      } else {
+        StatusCode::NOT_FOUND.into_response()
+      })
+    })
+  }
+
   async fn item(
     Extension(server_config): Extension<Arc<ServerConfig>>,
     Extension(index): Extension<Arc<Index>>,
@@ -1969,6 +2172,54 @@ impl Server {
         .page(server_config)
         .into_response()
       })
+    })
+  }
+
+  async fn inscription_guesses_between_blocks(
+    Extension(index): Extension<Arc<Index>>,
+    Path((start_block, end_block)): Path<(u32, u32)>,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      if end_block <= start_block || end_block - start_block > 10 {
+        return Err(ServerError::NotFound(
+          "Invalid block range: end_block must be greater than start_block and within a range of 10".to_string(),
+        ));
+      }
+
+      let mut response = Vec::new();
+
+      for block_height in start_block..=end_block {
+        let inscriptions = index.get_inscriptions_in_block(block_height)?;
+
+        for inscription in inscriptions {
+          let inscription_str = inscription.to_string();
+
+          if !inscription_str[0..4].chars().all(|c| c.is_digit(10)) {
+            continue;
+          }
+
+          // if !inscription_str[0..11].chars().all(|c| c.is_digit(10)) {
+          //   continue;
+          // }
+
+          if !inscription_str.ends_with("i0") {
+            continue;
+          }
+
+          let query = query::Inscription::Id(inscription);
+          let (info, _, _) = index
+            .inscription_info(query, None)?
+            .ok_or_not_found(|| format!("inscription {query}"))?;
+
+          if info.metaprotocol.as_deref() != Some("mempool69") {
+            continue;
+          }
+
+          response.push(info);
+        }
+      }
+
+      Ok(Json(response).into_response())
     })
   }
 
